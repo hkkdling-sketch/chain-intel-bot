@@ -1,0 +1,34 @@
+# ===== SECRETS — never commit =====
+config.json
+config.backup-*.json
+*.token
+.env
+.env.*
+
+# ===== Local runtime state =====
+state/
+*.log
+
+# ===== Business / ops notes (private, kept local only) =====
+上线*.md
+上线*.txt
+养号内容包.md
+引流文案.md
+执行方案与打卡步骤.md
+纸飞机频道搭建步骤.md
+账号安全与养号指南.md
+阶段0配置步骤.md
+频道文案.md
+频道装修清单.md
+频道视觉/
+
+# ===== Dependencies =====
+node_modules/
+npm-debug.log*
+
+# ===== OS / Editor =====
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+首批付费会员获取计划.md

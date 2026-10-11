@@ -1,0 +1,14 @@
+{
+  "name": "chain-intel-bot",
+  "version": "0.1.0",
+  "description": "链上情报 Bot - Telegram 加密行情订阅机器人 (MVP)",
+  "type": "module",
+  "scripts": {
+    "start": "node src/bot.js",
+    "once": "node src/bot.js --once",
+    "dry": "node src/bot.js --once --dry"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

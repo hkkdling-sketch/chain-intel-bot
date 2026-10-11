@@ -1,0 +1,12 @@
+{
+  "telegram": {
+    "botToken": "PASTE_YOUR_BOT_TOKEN_FROM_BOTFATHER",
+    "chatId": "@your_public_channel_handle",
+    "memberChatId": "@your_private_member_channel_handle"
+  },
+  "scheduleMinutes": 720,
+  "usdc": {
+    "receiveAddress": "YOUR_OKX_BASE_NETWORK_USDC_ADDRESS",
+    "monthlyPriceUsd": 9
+  }
+}
