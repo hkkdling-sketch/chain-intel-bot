@@ -25,11 +25,16 @@ echo "  npm:  $(npm -v 2>/dev/null || echo none)"
 echo "  git:  $(git --version 2>/dev/null || echo none)"
 
 NODE_MAJOR=$(echo "$NODE_V" | sed 's/^v//' | cut -d. -f1)
-if [ -z "$NODE_MAJOR" ] || [ "$NODE_MAJOR" -lt 20 ] 2>/dev/null; then
-  echo "  ❌ 需要 Node 20+（--env-file 依赖 20.6+）"
+NODE_MINOR=$(echo "$NODE_V" | sed 's/^v//' | cut -d. -f2)
+NODE_MINOR=${NODE_MINOR:-0}
+# --env-file 是 Node 20.6 才引入的。只判主版本会让 20.0~20.5 通过检查，
+# 然后在 pm2 里报 "bad option: --env-file" 无限重启 —— 所以必须判到次版本。
+if [ -z "$NODE_MAJOR" ] || [ "$NODE_MAJOR" -lt 20 ] 2>/dev/null || \
+   { [ "$NODE_MAJOR" -eq 20 ] && [ "$NODE_MINOR" -lt 6 ]; } 2>/dev/null; then
+  echo "  ❌ 需要 Node 20.6+（--env-file 依赖），当前 $NODE_V"
   exit 1
 fi
-echo "  ✅ Node 版本满足（需要 20.6+）"
+echo "  ✅ Node 版本满足（$NODE_V ≥ 20.6）"
 
 # ── 2. 依赖 ─────────────────────────────────────
 echo ""
@@ -71,6 +76,8 @@ fi
 
 # STATE_DIR 自动指向项目下的 state（持久盘内）
 if ! grep -q '^STATE_DIR=' .env; then
+  # 末行没有换行符时直接 >> 会把两个变量拼成一行，两个都坏 —— 先补一个换行
+  [ -n "$(tail -c1 .env 2>/dev/null)" ] && echo "" >> .env
   echo "STATE_DIR=$ROOT/state" >> .env
   echo "  已追加 STATE_DIR=$ROOT/state"
 else
@@ -84,7 +91,9 @@ else
 fi
 
 mkdir -p "$ROOT/state"
-echo "  ✅ 配置检查通过"
+# .env 里有 bot token：默认 644 同机器上任何用户都能读，收紧到 600
+chmod 600 .env 2>/dev/null || true
+echo "  ✅ 配置检查通过（.env 权限 600）"
 
 # ── 4. 启动 ─────────────────────────────────────
 echo ""
@@ -94,7 +103,10 @@ if ! command -v pm2 >/dev/null 2>&1; then
   npm i -g pm2 2>&1 | tail -2
 fi
 
-pm2 delete all >/dev/null 2>&1 || true
+# ⚠️ 只删本项目自己的进程。别用 `pm2 delete all` ——
+#    这台机器上如果要并存别的项目（AI agent 网关等），那条命令会把它们一起杀掉，
+#    而且带了 || true 静默执行，你根本看不到。
+pm2 delete chain-intel-bot keepalive >/dev/null 2>&1 || true
 pm2 start ecosystem.config.cjs 2>&1 | tail -10
 pm2 save >/dev/null 2>&1 && echo "  ✅ pm2 save 完成"
 
@@ -128,8 +140,8 @@ cat <<'TIP'
   ④ 注册 uptimerobot.com → Add Monitor → HTTP(s)
      URL 填上面那个 ping 地址，间隔 5 分钟，勾上邮箱告警
 
-  ⑤ 真发一条到频道：
-       node src/bot.js --once
+  ⑤ 真发一条到频道（发完立刻重启，让常驻进程重新按 12 小时计时）：
+       node src/bot.js --once && pm2 restart chain-intel-bot
 
   ⑥ 模拟开机，验证配置不丢（最容易翻车的一项）：
        pm2 kill && pm2 resurrect && pm2 logs --lines 5
