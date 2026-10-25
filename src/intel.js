@@ -22,11 +22,21 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const seenFile = path.join(stateDir, 'news-seen.json');
 
 // 只保留实测可用的源。CoinDesk 的 RSS 路径近年改过，可靠性差，暂不纳入。
+//
+// lang 字段的用途：免费档只发 1 条头条做钩子，那条**优先挑中文**——
+// 受众是中文用户，推一条英文标题等于白推（观感也像搬运号）。
+// 会员档仍然中英混排，信息量优先。
 const FEEDS = [
-  { name: 'Cointelegraph', url: 'https://cointelegraph.com/rss' },
-  { name: 'Decrypt', url: 'https://decrypt.co/feed' },
-  { name: 'The Block', url: 'https://www.theblock.co/rss.xml' },
-  { name: 'Bitcoin Magazine', url: 'https://bitcoinmagazine.com/feed' },
+  // 中文源（快讯密度高，2026-10-25 实测 50 条/次、更新到分钟级）
+  {
+    name: '深潮 TechFlow',
+    url: 'https://www.techflowpost.com/rss/v2/feed.xml?lang=zh-CN&type=all&topic=all&tag=all',
+    lang: 'zh',
+  },
+  { name: 'Cointelegraph', url: 'https://cointelegraph.com/rss', lang: 'en' },
+  { name: 'Decrypt', url: 'https://decrypt.co/feed', lang: 'en' },
+  { name: 'The Block', url: 'https://www.theblock.co/rss.xml', lang: 'en' },
+  { name: 'Bitcoin Magazine', url: 'https://bitcoinmagazine.com/feed', lang: 'en' },
 ];
 
 const UA = 'Mozilla/5.0 (compatible; chain-intel-bot/0.1)';
@@ -70,7 +80,7 @@ function pick(block, tag) {
   return m ? decode(m[1]) : '';
 }
 
-function parseFeed(xml, source) {
+function parseFeed(xml, source, lang = 'en') {
   const blocks =
     xml.match(/<item[\s>][\s\S]*?<\/item>/gi) || xml.match(/<entry[\s>][\s\S]*?<\/entry>/gi) || [];
   const out = [];
@@ -79,7 +89,7 @@ function parseFeed(xml, source) {
     let link = pick(b, 'link');
     if (!link) link = (b.match(/<link[^>]*href="([^"]+)"/i) || [])[1] || '';
     const dateStr = pick(b, 'pubDate') || pick(b, 'updated') || pick(b, 'published');
-    if (title && link) out.push({ title, link, source, ts: Date.parse(dateStr) || 0 });
+    if (title && link) out.push({ title, link, source, lang, ts: Date.parse(dateStr) || 0 });
   }
   return out;
 }
@@ -87,7 +97,7 @@ function parseFeed(xml, source) {
 // 拉全部源，按时间排序、按链接去重
 export async function fetchNews(limit = 5) {
   const settled = await Promise.allSettled(
-    FEEDS.map((f) => fetchText(f.url).then((xml) => parseFeed(xml, f.name)))
+    FEEDS.map((f) => fetchText(f.url).then((xml) => parseFeed(xml, f.name, f.lang)))
   );
   const all = [];
   for (const r of settled) if (r.status === 'fulfilled') all.push(...r.value);
@@ -154,7 +164,8 @@ export async function readArticle(url, maxChars = 900) {
 export function formatIntel(news, { full = true } = {}) {
   if (!news.length) return '';
   if (!full) {
-    const n = news[0];
+    // 免费档只给 1 条做钩子：优先中文（受众是中文用户），实在没有才退回第一条
+    const n = news.find((x) => x.lang === 'zh') || news[0];
     return `📰 <b>头条</b>: ${esc(n.title)}`;
   }
   const lines = ['📰 <b>情报速递</b> <i>(加密媒体头条)</i>'];
