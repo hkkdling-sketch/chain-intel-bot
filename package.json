@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/bot.js",
     "once": "node src/bot.js --once",
-    "dry": "node src/bot.js --once --dry"
+    "dry": "node src/bot.js --once --dry",
+    "serve": "node src/keepalive.js"
   },
   "engines": {
     "node": ">=18"

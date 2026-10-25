@@ -10,10 +10,8 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { stateDir } from './state.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const stateDir = path.join(__dirname, '..', 'state');
 const stateFile = path.join(stateDir, 'market-source.json');
 
 const TIMEOUT = 7000;

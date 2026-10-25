@@ -4,10 +4,8 @@
 import { fetchMarkets, fetchTrending } from './fetch.js';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { stateDir } from './state.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const stateDir = path.join(__dirname, '..', 'state');
 const trendingFile = path.join(stateDir, 'trending.json');
 
 const pctOf = (v) => (Number.isFinite(v) ? v : 0);

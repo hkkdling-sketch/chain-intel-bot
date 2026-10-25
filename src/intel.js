@@ -14,11 +14,11 @@ import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fetchTrending } from './fetch.js';
+import { stateDir } from './state.js';
 
 const execFileP = promisify(execFile);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const stateDir = path.join(__dirname, '..', 'state');
 const seenFile = path.join(stateDir, 'news-seen.json');
 
 // 只保留实测可用的源。CoinDesk 的 RSS 路径近年改过，可靠性差，暂不纳入。
@@ -169,11 +169,22 @@ export function formatIntel(news, { full = true } = {}) {
 // ⚠️ Exa 免费 MCP 有速率限制，撞上了会返回限流提示 → 本模块直接抛错，由上层降级跳过
 // ─────────────────────────────────────────────────────────────
 
-// mcporter 的 cli.js 位置：可用环境变量 MCPORTER_CLI 覆盖
+// mcporter 的 cli.js 位置：可用环境变量 MCPORTER_CLI 覆盖（云端建议显式设置）
 const MCPORTER_CANDIDATES = [
   process.env.MCPORTER_CLI,
+  // 项目内安装（npm i mcporter）
   path.join(__dirname, '..', 'node_modules', 'mcporter', 'dist', 'cli.js'),
-  'C:\\Users\\25675\\.workbuddy-ai\\binaries\\node\\workspace\\node_modules\\mcporter\\dist\\cli.js',
+  // 全局安装（npm i -g mcporter）的常见位置 —— 云端 Linux 走这两条
+  '/usr/local/lib/node_modules/mcporter/dist/cli.js',
+  '/usr/lib/node_modules/mcporter/dist/cli.js',
+  ...(process.env.HOME
+    ? [path.join(process.env.HOME, '.npm-global', 'lib', 'node_modules', 'mcporter', 'dist', 'cli.js')]
+    : []),
+  // ⚠️ 仅本地 Windows 开发机（WorkBuddy 的 node workspace）。
+  //    云端 Linux 不加这条，免得白跑 existsSync。
+  ...(process.platform === 'win32'
+    ? ['C:\\Users\\25675\\.workbuddy-ai\\binaries\\node\\workspace\\node_modules\\mcporter\\dist\\cli.js']
+    : []),
 ].filter(Boolean);
 
 function findMcporter() {

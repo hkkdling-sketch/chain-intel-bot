@@ -4,6 +4,7 @@ config.backup-*.json
 *.token
 .env
 .env.*
+!.env.example
 
 # ===== Local runtime state =====
 state/
