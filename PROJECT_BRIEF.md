@@ -1,32 +1,30 @@
-# 链上情报 Bot · 完整项目方案（交给其他 AI 评估用）
+# 链上情报 Bot · 项目交接文档
 
-> 这份文档是自包含的：读者无需任何前置对话上下文。
-> 最后更新：2026-10-25 ｜ 代码位置：`C:\Users\25675\WorkBuddy AI\2026-09-17-00-00-38\crypto-bot`
-
----
-
-## 0. 一句话概括
-
-一个 **Telegram 加密行情/情报推送机器人**，Node.js 零依赖实现，免费数据源拼装，
-通过频道订阅 + USDC 月费变现。当前已完成开发与本地验证，**待部署到 InstaBox 免费云机器**。
-
-**用户背景**（影响技术选型的关键约束）：
-- 大专在校生，启动资金约 500 元人民币，**预算极低，只能用免费资源**
-- Windows 本地开发，云端是 Linux（Debian 13）
-- 手上**还有其他项目要跑**（AI agent 网关、任务类 agent 等），但免费云只有 1 台机器
-- 英语可读写，目标受众是中文加密用户（Telegram）
-- 对安全敏感：botToken 曾明文暴露过，现已改走环境变量
+> 给接手的 AI 或协作者。**自包含**，无需任何前置对话上下文。
+> 最后更新：2026-10-25 22:20 ｜ 版本 `6493994` ｜ 状态：**已上线运行中**
 
 ---
 
-## 1. 产品与商业模式
+## 0. 三行速览
 
-### 1.1 内容分档
+- **是什么**：Telegram 中文加密行情/情报推送 bot，Node.js 零依赖，1569 行代码
+- **现在**：已部署到 InstaBox 免费云，每天 08:30 / 20:30 自动推送，**0 用户、0 收入**
+- **代码**：https://github.com/hkkdling-sketch/chain-intel-bot （公开仓库，分支 `main`）
+
+---
+
+## 1. 项目是什么
+
+### 1.1 产品形态
+
+一个 Telegram 频道，每天固定两次推送加密市场摘要。免费档是钩子，会员档收费。
 
 | 档位 | 内容 | 目标 |
 |---|---|---|
-| **免费档**（公开频道） | 市值前 10 行情 + 热度/涨幅榜 + 全球总市值 + BTC 占比 + **1 条头条**（钩子） | 拉新、维持频道活跃 |
-| **会员档**（付费频道） | 上述全部 + 会员专享（24h 异动榜、新晋热点）+ **完整情报速递**（4 条）+ **深度解读**（Exa 语义搜索 2 条） | $9/月 USDC 变现 |
+| **免费档**（公开频道） | 市值前 10 行情 + 热度/涨幅榜 + 总市值 + BTC 占比 + **1 条中文头条** | 拉新、维持活跃 |
+| **会员档**（付费频道） | 全部免费内容 + 24h 异动榜 + 新晋热点 + 完整情报速递（4~6 条）+ 深度解读（Exa 语义搜索） | $9/月 USDC |
+
+**核心定位**：卖的不是"信息"（到处都有），是"**省时间**"——每天两条、2 分钟看完、不用刷 50 个群。
 
 ### 1.2 分发规则（代码已实现）
 
@@ -36,314 +34,299 @@
 
 ### 1.3 收款
 
-USDC 直接收款（EVM 地址），人工确认后手动拉人进会员频道。
-**没有自动化支付验证**，是 MVP 阶段的人工环节。
+USDC 直接收款（EVM 地址），**人工确认后手动拉人**。没有自动化支付验证，是 MVP 阶段的人工环节。
+
+### 1.4 用户背景（影响技术选型的关键约束）
+
+- 大专在校生，启动资金约 500 元，**预算极低，只能用免费资源**
+- Windows 本地开发，云端 Linux（Debian 13）
+- 手上**还有其他项目要跑**（AI agent 网关等），但免费云只有 1 台机器
+- 英语可读写，目标受众是**中文**加密用户
+- 抗拒"自己一条条手动私信"，接受 AI 代做外联
+- 对安全敏感：botToken 曾明文暴露，现已改走环境变量
 
 ---
 
-## 2. 技术架构
+## 2. 当前运行状态（2026-10-25 22:00）
 
-### 2.1 运行时与依赖
+### 2.1 部署
 
-- **Node.js >= 18**（用了原生 `fetch`、ESM、top-level await）
-- **零 npm 运行时依赖**（package.json 里没有 dependencies）—— 刻意设计，降低部署复杂度
-- 唯一的外部二进制依赖：**mcporter**（仅"深度解读"模块用，可选，缺失时该模块静默跳过）
+| 项 | 值 |
+|---|---|
+| 平台 | InstaBox 免费档（Firecracker microVM，YC P26 团队 InsForge 产品） |
+| 规格 | 4 vCPU / 8 GiB / 20 GiB 持久盘（`/data`） |
+| 系统 | Debian 13 (trixie)，内核 6.18，Node **v22.23.3** |
+| 代码路径 | `/data/home/chain-intel-bot`（持久盘内，系统盘可能重置） |
+| 进程 | pm2：`chain-intel-bot` + `keepalive`，均 online，合计约 60 MB |
+| 开机自启 | systemd `pm2-user` = **enabled**（已用 `pm2 kill && resurrect` 验证） |
+| 公网端口 | 8080 → `/healthz`（无鉴权）、`/ping?key=***`（需密钥） |
+| 外部监控 | UptimeRobot 每 5 分钟 GET `/ping`，邮箱告警已开 |
+| 配置方式 | `.env` 由 `node --env-file` 加载（密钥不进 pm2 dump） |
+| 月成本 | **0 元**（InstaBox 免费期 + UptimeRobot 免费档） |
 
-### 2.2 模块职责表
+### 2.2 推送节奏
+
+```
+PUSH_TIMES=08:30,20:30
+2026-10-25 15:24  第 1 条（部署时手动 --once 验证）
+2026-10-25 20:30  第 2 条（第一条定点推送）
+之后每天 08:30 / 20:30
+```
+
+### 2.3 已验证 / 未验证
+
+**已验证**：
+- 端到端推送成功（`[OK] 已发送到 Telegram`）
+- 重启不重复推（`[SKIP] 距上次 X 分钟`）
+- `pm2 kill && pm2 resurrect` 后配置不丢
+- 外部 `/ping` 返回 JSON 含 `lastPush`
+- 定点推送 8 个场景单测通过（含暂停后补推、跨天补漏、推过不重复）
+
+**未验证**：
+- **8 小时强制暂停后，`/ping` 能否唤醒机器**（唯一需要时间验证的假设，2026-10-25 23:30 见分晓）
+- mcporter / Exa 深度解读在云端是否可用（当前未安装，会员档缺这块）
+- 会员档实际推送效果（未配 `memberChatId`）
+
+---
+
+## 3. 技术架构
+
+### 3.1 运行时
+
+- **Node.js >= 20.6**（`--env-file` 需要；实际用 22）
+- **零 npm 运行时依赖**（package.json 无 dependencies）——刻意设计，降低部署复杂度
+- 唯一外部二进制依赖：**mcporter**（仅深度解读用，可选，缺失时显式警告后跳过）
+
+### 3.2 模块职责
 
 | 文件 | 行数 | 职责 | 关键设计 |
 |---|---|---|---|
-| `src/bot.js` | ~290 | 入口编排 + 惰性推送 + 消息分片发送 | 每路独立 `catch`；4096 分片；429 重试 |
-| `src/config.js` | ~50 | 统一配置：**环境变量优先，回退 config.json** | 本地零感知；云端只给 env |
-| `src/state.js` | ~45 | 状态目录 + 上次推送时间戳 | `STATE_DIR` 可指向持久盘；三模块共用 |
-| `src/fetch.js` | ~550 | 行情层：8 个行情源 / 4 个涨幅源 / 3 个全球源 | 多源自动降级 + **源记忆** + 负缓存 + 同层并发赛跑 |
-| `src/intel.js` | ~300 | 情报层：4 个 RSS 源 + Jina Reader + Exa 搜索 | 零依赖 RSS 解析；按源限流（每源最多 2 条）；已读去重 |
-| `src/premium.js` | ~75 | 会员档数据：异动预警、新晋热点 | 空投模块**已停用**（见 §6 遗留问题） |
-| `src/format.js` | ~70 | Telegram HTML 格式化 | 过滤稳定币与代币化股票（`FIGR_HELOC` 这类下划线 ticker） |
-| `src/keepalive.js` | ~80 | HTTP 健康检查端点（云端保活用） | `/ping` 需 key，未配置则 403；返回 lastPush 状态 |
-| `ecosystem.config.cjs` | ~70 | pm2 守护 bot + keepalive | 崩溃自动重启 + 指数退避 + **自加载 .env** |
-| `.github/workflows/instabox-resume.yml` | ~60 | 每 4 小时调 API 唤醒被暂停的机器 | 需 GitHub Secrets 存 key 与 machine id |
+| `src/bot.js` | ~330 | 入口编排 + 调度 + 发送 | 四路并行抓取；`runOnce` 返回是否真发出；4096 分片；429 重试；20s 超时；5 分钟看门狗 |
+| `src/config.js` | ~70 | 配置读取 | 环境变量优先，回退 `config.json`；`PUSH_TIMES` 解析 |
+| `src/state.js` | ~90 | 状态目录 + 时间戳 + 定点调度 | `STATE_DIR` 可指持久盘；原子写；`nextDuePushTime()` |
+| `src/fetch.js` | ~550 | 行情层 | 8 个行情源 / 4 个涨幅源 / 3 个全球源；多源降级 + 源记忆 + 负缓存 + 同层赛跑 |
+| `src/intel.js` | ~320 | 情报层 | 1 中文源 + 4 英文 RSS；Jina Reader；Exa 语义搜索（走 mcporter CLI） |
+| `src/premium.js` | ~75 | 会员档数据 | 异动预警、新晋热点；**空投模块已停用**（`return []`） |
+| `src/format.js` | ~70 | Telegram HTML 格式化 | 过滤稳定币与代币化股票（下划线 ticker） |
+| `src/keepalive.js` | ~90 | 健康检查端点 | `/ping` 需 key；返回 `lastPush` 状态 |
+| `ecosystem.config.cjs` | ~85 | pm2 配置 | 指数退避；`node --env-file` 加载；不误删他人进程 |
+| `deploy.sh` | ~145 | 一键部署 | 环境检查、`.env` 校验、`chmod 600`、pm2 启动、日志检查 |
+| `.github/workflows/instabox-resume.yml` | ~60 | 8 小时续命（备用） | 每 4 小时调 resume API，需 2 个 GitHub Secrets |
 
-### 2.3 数据流
+### 3.3 数据流
 
 ```
-                ┌─ fetch.js  fetchMarkets()  ──┐
-                │   8 源降级 / 源记忆 / 30s 缓存 │
-                ├─ fetch.js  fetchTrending() ──┤
-                │   3 源降级 → 热度榜 or 涨幅榜  │
-  bot.js ───────┼─ fetch.js  fetchGlobal()  ───┼──> format.js ──> 拼装 ──> Telegram API
-  (runOnce)     │   3 源赛跑 / 4s 超时        │
-                ├─ intel.js  fetchFreshNews() ─┤
-                │   4 RSS 源 + 已读去重        │
-                └─ intel.js  fetchDeepDive() ──┘
-                    mcporter → Exa 语义搜索（可选）
+                ┌─ fetchMarkets()   8 源降级 / 源记忆 / 30s 缓存 ─┐
+                ├─ fetchTrending()  3 源降级 → 热度榜 or 涨幅榜  ─┤
+  bot.js ───────┼─ fetchGlobal()    3 源赛跑 / 4s 超时          ─┼─> format.js ─> 分片 ─> Telegram
+  (runOnce)     ├─ fetchFreshNews() 1 中文 + 4 英文 RSS / 去重  ─┤
+                └─ fetchDeepDive()  mcporter → Exa（可选）      ─┘
 ```
 
-### 2.4 容错策略（这是本项目最值得看的部分）
+### 3.4 容错策略（本项目最扎实的部分）
 
-1. **多源降级**：每个板块配 2~8 个免费源，按 tier 分组，同层并发赛跑，谁先返回有效数据用谁
-2. **源记忆**：上次成功的源记录在 `state/market-source.json`，下轮优先试它（热启动几百毫秒）
-3. **负缓存**：所有源都失败时记录时间戳，30 分钟内不再重试（避免每轮白等 7 秒超时）
-4. **板块级降级**：全球总览拿不到 → 跳过那两行；情报拿不到 → 少一块；深度解读失败 → 整块消失。**任何一块失败都不会导致整条推送失败**
-5. **抓取去重**：同一次运行内 `fetchMarkets()` 用 in-flight Promise 缓存，多个模块共享一次请求
+1. **多源降级**：每个板块 2~8 个免费源，按 tier 分组，同层并发赛跑，谁先返回有效数据用谁
+2. **源记忆**：上次成功的源记在 `state/market-source.json`，下轮优先试（热启动几百毫秒）
+3. **负缓存**：全源失败时记时间戳，30 分钟内不重试（避免每轮白等 7 秒超时）
+4. **板块级降级**：任何一块失败都不影响整条推送
+5. **抓取去重**：同一次运行内 `fetchMarkets()` 用 in-flight Promise 缓存
 
-### 2.5 外部数据源清单（全部免费、无需 API key）
+### 3.5 数据源（全部免费、无需 API key）
 
-**行情**：CoinGecko / Coinlore / CoinPaprika / OKX / Gate.io / Binance / `data-api.binance.vision`（币安官方公开镜像，境内可达）/ CoinCap
-**新闻**：Cointelegraph / Decrypt / The Block / Bitcoin Magazine 的 RSS
-**深读**：`r.jina.ai`（网页转正文，免费）
-**深度解读**：Exa 语义搜索，通过 `mcporter` CLI 调用（**有免费额度限制，会限流**）
+**行情**：CoinGecko / Coinlore / CoinPaprika / OKX / Gate.io / Binance / `data-api.binance.vision`（境内可达）/ CoinCap
+**中文新闻**：深潮 TechFlow RSS（`techflowpost.com/rss/v2/feed.xml?lang=zh-CN&type=all&topic=all&tag=all`，实测 50 条/次、分钟级更新）
+**英文新闻**：Cointelegraph / Decrypt / The Block / Bitcoin Magazine
+**深读**：`r.jina.ai`
+**深度解读**：Exa 语义搜索（经 mcporter，有免费额度限制）
 
-> 实测背景：用户在中国大陆，CoinGecko 官方域名常被 DNS 污染，所以才有这么厚的降级层。
+> 背景：用户在中国大陆，CoinGecko 官方域名常被 DNS 污染，所以降级层做得这么厚。
+
+### 3.6 调度机制：惰性 + 定点（重要）
+
+**不用 `setInterval(12h)`**——机器会被强制暂停，定时器不推进，恢复后节奏失控。
+
+改成：**每 5 分钟 tick 一次，读 `state/schedule.json` 判断该不该推**。
+
+```
+每 5 分钟 tick ──> 读 lastPushedAt
+                     ├─ 配了 PUSH_TIMES：算「已到点但未推」的时刻，没有就 SKIP
+                     ├─ 没配：距上次不足 SCHEDULE_MINUTES 就 SKIP
+                     └─ 该推 → runOnce() → 真发出才写 lastPushedAt
+```
+
+定点模式的三个性质（已单测）：
+- 机器暂停错过某时刻 → 唤醒后 5 分钟内**自动补推**（只补最近一次）
+- 已推过的时刻**不会重复推**（进程重启也一样）
+- 跨天漏推会补最近一次，不会补发一堆
 
 ---
 
-## 3. 运行方式
+## 4. 部署与运维
+
+### 4.1 部署
 
 ```bash
-npm start          # 常驻：每 5 分钟自检，距上次成功推送 ≥ SCHEDULE_MINUTES 才推（当前 720 = 12h）
-npm run once       # 立刻强制推一次，不看间隔（手动补发用）
-npm run dry        # 只打印不发送，且**不写时间戳**（改代码后先用这个验证）
-npm run serve      # 只起 keepalive 端点（云端配合 pm2 用）
+# 本地进云端机器
+npx instabox@latest sh
+
+# 云端
+mkdir -p /data/home && cd /data/home
+git clone https://github.com/hkkdling-sketch/chain-intel-bot.git
+cd chain-intel-bot
+bash deploy.sh          # 第一次会创建 .env 并退出
+nano .env               # 填 TG_BOT_TOKEN / TG_CHAT_ID / KEEPALIVE_KEY / USDC_RECEIVE_ADDRESS / PUSH_TIMES
+bash deploy.sh          # 第二次真正启动
 ```
 
-> **惰性推送**：不用 `setInterval(12h)`，而是每 5 分钟读 `state/schedule.json` 判断「该不该推」。
-> 机器被暂停 8 小时后唤醒，5 分钟内自动补推；进程重启也不会重复推。
-> `--dry` 刻意不写时间戳，否则本地试跑一次会让真机 12 小时不推。
+`deploy.sh` 会：检查 Node 20.6+ → 校验 `.env` 占位符 → 自动设 `STATE_DIR` → `chmod 600 .env` → 只删本项目进程 → pm2 start + save → 打印日志与检查点。
 
-### 3.1 配置项（env 或 config.json 均可）
+### 4.2 日常运维
 
-| 变量 | 说明 | 当前值 |
-|---|---|---|
-| `TG_BOT_TOKEN` | Telegram bot token | 已配（不入库） |
-| `TG_CHAT_ID` | 公开频道/群 ID | `@mflsqb`（公开频道形态） |
-| `TG_MEMBER_CHAT_ID` | 会员频道 ID（可选） | 未配 |
-| `SCHEDULE_MINUTES` | 推送间隔 | 720 |
-| `STATE_DIR` | 状态目录（云端指向持久盘 `/data/...`） | 未设（默认 `<项目>/state`） |
-| `USDC_RECEIVE_ADDRESS` | 收款地址 | 已配（不入库） |
-| `USDC_MONTHLY_PRICE` | 月费 | 9 |
-| `KEEPALIVE_PORT` | 保活端点端口 | 8080 |
-| `KEEPALIVE_KEY` | 保活密钥（`/ping` 必须带） | 待生成 |
-| `MCPORTER_CLI` | mcporter CLI 绝对路径（可选覆盖） | 未设，走硬编码候选 |
+```bash
+pm2 logs chain-intel-bot --lines 50        # 看日志
+pm2 restart chain-intel-bot                # 重启
+cd /data/home/chain-intel-bot && git pull && bash deploy.sh   # 更新代码
+cat /data/home/chain-intel-bot/state/schedule.json            # 看上次推送时间
+node src/bot.js --once                     # 强制补推一次（不看时刻）
+```
 
----
+### 4.3 免费档限制与两道防线
 
-## 4. 部署目标环境：InstaBox 免费档（真实限制）
-
-InstaBox 是 YC P26 团队 InsForge 的产品，给 AI Agent 用的云电脑，2026-10 开 beta，免费期不计费。
-
-| 项目 | 免费档实际额度 |
+| 限制 | 应对 |
 |---|---|
-| 机器数 | **1 台**（暂停/停止也占名额） |
-| 规格 | **4 vCPU / 8 GiB**（唯一可选规格） |
-| 磁盘 | 系统盘 16 GiB（`/`，可能重置）+ 持久盘 20 GiB（`/data`，home 在 `/data/home`） |
-| 存储池 | 200 GB（快照 + 机器文件共用） |
-| 快照 | 5 个 |
-| 模板 | **仅 `agent-browser`**：Debian 13 / kernel 6.18 / 预装 Node 22 + npm + git + Docker + Compose + Claude Code + Codex + VNC 桌面 |
-| **闲置暂停** | **30 分钟，固定不可改**（付费才能调或关闭） |
-| **运行上限** | **连续运行 8 小时后暂停**（控制台文案，官方文档尚未同步） |
-| 公网端口 | 16 个/台，任意端口可得 HTTPS URL |
-| API key | 20 个，Agent 可调接口开关机 |
-| 单命令超时 | 10 分钟 |
-| 计费 | 不计费（官方原话 "Free until we figure it out"，定价未定） |
-
-### 4.1 关键机制：暂停 ≠ 关机
-
-- **暂停（pause/suspend）**：内存 + 进程 + 文件全保留，恢复后原样继续，pm2 和 bot 不用重装
-- **停止（stop）**：进程全没，只剩文件
-- 官方文档明确：**「访问公网端口 URL 会唤醒闲置暂停的机器」**
-
-### 4.2 保活方案（两道防线）
-
-```
-        ┌─ 防线1：UptimeRobot 每 5 分钟 GET /ping?key=xxx ──> 破「闲置 30 分钟」
-外部 ───┤
-        └─ 防线2：GitHub Actions 每 4 小时 POST /resume ───> 破「运行 8 小时」
-```
-
-- **防线 1 已确认原理成立**（官方文档写了访问端口会唤醒）
-- **防线 2 是兜底**：8 小时暂停后 ping 能否唤醒**尚未实测**，不能唤醒就靠 Actions 调 API
-- 手动续命命令：
-  ```bash
-  curl -X POST "https://api.instabox.sh/v1/machines/<id>/resume" \
-    -H "X-API-Key: <key>" -H "Idempotency-Key: $(uuidgen)"
-  ```
+| 闲置 30 分钟暂停（固定不可改） | UptimeRobot 每 5 分钟 GET `/ping`（官方文档确认：访问公网端口可唤醒） |
+| **连续运行 8 小时后暂停**（控制台文案，文档未同步） | 先实测；唤不醒则启用 `.github/workflows/instabox-resume.yml`（每 4 小时调 resume API） |
+| 只有 1 台机器 | bot 和 keepalive 同机；后续其他项目要挤在同一台 |
+| 免费期无承诺（"Free until we figure it out"） | 当红利期工具用，别押生产数据 |
 
 ---
 
-## 5. 当前进度
+## 5. 已完成 / 未完成
 
 ### ✅ 已完成
 
-- 全部业务代码，本地 `--dry` 验证通过（8 个行情源、4 个 RSS 源、格式化、分档逻辑均正常）
-- 配置改造：环境变量优先（`src/config.js`），本地 `config.json` 向后兼容
-- **惰性推送已实现并验证**：造 `schedule.json` 后重启显示 `[SKIP] 距上次 0 分钟 < 720`；`--dry` 确认不写时间戳
-- **`STATE_DIR` 全链路生效**：实测 `STATE_DIR=./custom-state` 时 fetch/intel/premium 三处状态文件都落在该目录
-- **部署静默失败风险已消除**：`ecosystem.config.cjs` 自己加载 `.env`（实测 `[PM2] 已加载 .env（2 个变量）`）
-- **消息分片 / 限流重试 / 原子写**已实现并单测通过
-- 云端配套：`src/keepalive.js`（返回 lastPush）、`ecosystem.config.cjs`（指数退避）、`.github/workflows/instabox-resume.yml`
-- 部署文档：`CLOUD_DEPLOY.md`（真实额度、两道防线、pm2 startup、logrotate、告警、验收清单）
-- `.env.example` 模板 + `.gitignore` 修正
+- 全部业务代码 + 本地 `--dry` 验证
+- 云端部署上线，端到端推送成功
+- 惰性推送 + 定点推送（08:30 / 20:30）
+- 中文源接入（深潮），免费档头条优先中文
+- 消息分片（4096）、429 重试、20s 超时、5 分钟看门狗
+- 原子写状态、`STATE_DIR` 全链路、`--env-file` 配置加载
+- 一键部署脚本 + 完整 SOP（`CLOUD_DEPLOY.md`）
+- 外部监控（UptimeRobot）+ 开机自启
+- X 每日运营清单（`X_DAILY.md`）
 
-### ⏳ 未完成 / 未验证
+### ⏳ 未完成
 
-- **未实际部署到 InstaBox**（机器还没创建，控制台显示 0/1）
-- **8 小时暂停后 ping 能否唤醒：未实测**（唯一需要时间验证的关键假设）
-- UptimeRobot 账号未注册，监控未挂
-- GitHub Actions 的 secrets（API key、machine id）未配置
+- **8 小时暂停后能否被 ping 唤醒：未实测**
+- 会员档未启用（无 `memberChatId`）
+- mcporter / Exa 未在云端配置 → 深度解读缺失
+- 空投观察模块是空实现
+- **0 用户、0 收入**（核心问题，非技术）
+- 频道用户名 `@mflsqb` 随机字母，搜不到（待改）
 
 ---
 
-## 6. 已知问题与技术债（必须让评估者看到）
+## 6. 已知问题与技术债
 
-### ✅ 已修复：pm2 不读 `.env`（原 P0，会让部署静默失败）
+### 🟡 P1：会员档两个卖点是空的
 
-pm2 启动子进程时只继承当前 shell 的环境变量，**不会解析 `.env`**。
-症状极具迷惑性：`pm2 list` 两个进程 online、日志有输出，但频道一条消息都没有，
-`/ping` 永远 403（`KEEPALIVE_KEY` 也读不到），很容易误判成机器或网络问题。
+- **深度解读**：依赖 mcporter + Exa，云端未装 → `[WARN] mcporter 未安装`
+- **空投观察**：`premium.js` 的 `airdropWatch()` 直接 `return []`（2026-10-09 主动停用，避免"示例空投 A"占位内容砸招牌）
 
-修法（最终版）：`ecosystem.config.cjs` 检测到 `.env` 就传 `node_args: ['--env-file=.env']`，
-让**应用自己**加载。三种方案对比：
+**如果对外宣传会员含这两块，属于画饼。** 要么补实现，要么改宣传口径。
 
-| 方案 | 问题 |
-|---|---|
-| 在 ecosystem 里改 `process.env` | 只在 pm2 daemon 未运行时有效，`restart` / 开机自启后失效 |
-| pm2 的 `env` 字段 | 可靠，但把**明文 token 写进 `~/.pm2/dump.pm2`** |
-| **`node --env-file`（采用）** | 密钥不进 pm2，`kill`/`resurrect`/开机都重新读文件，Node 20.6+ 原生 |
+### 🟡 P1：`@mflsqb` 无法被搜索
 
-启动日志出现 `[PM2] 找到 .env → 通过 node --env-file 加载`。
+Telegram 频道只能通过搜索或链接进入。随机字母用户名 = 放弃搜索流量。改名后需同步 `TG_CHAT_ID`（云端 `.env` + 本地 `config.json`）。
 
-### ✅ 已修复：Telegram 上限 / 限流 / 状态非原子写
+### 🟢 P2：其余 state 文件仍非原子写
 
-- **4096 字符上限**：会员版（行情 + 异动 + 6 条情报 + 深度解读）可能超限，超了 TG 返回 400，
-  整条消息都发不出去。`splitForTelegram()` **按行累积切分**（每行都是完整单元，标签天然不跨片），
-  单行超长时剥离标签再切（宁可丢链接也不让整条失败），片间 300ms。
-  实测 7259 字符 → 2 片（3983 + 3275），标签零破损。
-- **429 限流**：按 `retry_after` 等一次再重试（上限 60s，只重试一次，不死磕）。
-- **state 非原子写**：`writeFileSync` 直接覆盖，写入瞬间被杀会让文件变空 →
-  `readLastPush()` 返回 null → 下次启动立刻重复推。改成 tmp + `renameSync` 原子替换。
-- **fetch 无超时**：`postTelegram` 原来没有 `AbortSignal`，网络抖动时连接可能挂几分钟 →
-  `runOnce` 卡住 → `running` 锁永不释放 → 之后每轮 tick 都 `[SKIP]`，
-  表现为「进程活着、日志在转、就是不推」。已加 `AbortSignal.timeout(20000)` + tick 层 5 分钟看门狗。
-
-### ✅ 已修复：mcporter 路径写死 Windows（原 P0）
-
-改为按平台判断，云端不会白试 Windows 路径，本地开发不受影响：
-
-```js
-const MCPORTER_CANDIDATES = [
-  process.env.MCPORTER_CLI,
-  path.join(__dirname, '..', 'node_modules', 'mcporter', 'dist', 'cli.js'),
-  '/usr/local/lib/node_modules/mcporter/dist/cli.js',
-  '/usr/lib/node_modules/mcporter/dist/cli.js',
-  ...(process.platform === 'win32' ? ['C:\\Users\\...\\mcporter\\dist\\cli.js'] : []),
-].filter(Boolean);
-```
-
-同时 `NO_MCPORTER` 从静默 `[SKIP]` 改为显式 `[WARN] mcporter 未安装 → 会员档缺「深度解读」模块`。
-
-**仍未解决的部分**：云端到底装不装 mcporter、Exa 免费额度够不够跑 12 小时一次的搜索——**未验证**。
-
-### 🟡 P1：会员档承诺的"空投观察"是空实现
-
-`premium.js` 的 `airdropWatch()` 直接 `return []`（2026-10-09 主动停用，因为之前是"示例空投 A"占位内容，
-公开频道出现这种会砸招牌）。**如果对外宣传会员含空投观察，属于画饼，必须修正宣传口径或接真数据源。**
-
-### ✅ 已修复：常驻模式无自愈保护
-
-改成惰性推送后，`setInterval` 只负责「每 5 分钟醒一次」，推送时机由 `state/schedule.json`
-的时间戳决定。进程重启会读回时间戳，**不会重复推也不会丢推**。pm2 再叠加
-`exp_backoff_restart_delay` 防止崩溃循环。
-
-### 🟢 P2：状态文件无锁
-
-`schedule.json` 已改成 tmp + rename 原子写。其余 `state/*.json`（源记忆、已读去重、热度榜）
-仍是简单 `readFileSync/writeFileSync`，多进程并发写会互相覆盖。
-当前只有一个 bot 进程，无实际风险；若将来多实例部署需换 SQLite 或加锁。
+`schedule.json` 已原子化，但 `market-source.json` / `news-seen.json` / `trending.json` 仍是直接覆盖。单进程无风险，多实例需换 SQLite。
 
 ### 🟢 P2：源记忆是"粘性"的
 
-一旦某源成功，后续优先用它。如果该源返回的数据质量下降（比如只返回部分币种），
-不会自动切回更优的 tier 1 源。属于可用性 vs 质量的取舍。
+某源成功后优先用它，即使它返回的数据质量下降也不会自动切回更优源。属于可用性 vs 质量的取舍。
+
+### 🟢 P2：`--once` 与常驻调度可能打架
+
+手动 `--once` 会写 `lastPushedAt`，但常驻进程的内存状态不变（它是每次读文件，所以实际无冲突）。已在 deploy.sh 提示"发完立刻 restart"。
 
 ---
 
-## 7. 需要评估的核心问题（这是提问清单）
+## 7. 待决策问题（交给接手者判断）
 
-### Q1. 一台 4C8G 机器上跑多个项目，怎么组织？
+### Q1. 0 用户怎么破？（最重要）
 
-用户的真实痛点是：**免费档只有 1 台 4 vCPU / 8 GiB**，但除了这个 bot，还有别的项目要跑
-（AI agent 网关、任务类 agent 等）。需要评估：
+频道已上线、内容每天自动产出，但**没有一个真实读者**。已给的方向：
+- 改可搜索的频道名/用户名
+- X 每日发内容（不贴链接，先攒互动）
+- 在加密群"答问题"而非"发广告"
 
-- 这个 bot 实际资源占用多大？（它是 I/O 密集型，大部分时间在 sleep，内存约 60~100 MB）
-- 多个 Node 进程 + 一个 Docker 环境共存，8 GiB 够不够？会不会 OOM？
-- 隔离方案选哪个：pm2 多 app / Docker Compose / systemd unit？各自的运维成本和故障隔离性如何？
-- 端口冲突怎么规划（每个项目都要开公网端口，只有 16 个额度）？
+**需要判断**：这套路径的预期产出是多少？有没有更高效但不违反"不手动私信"约束的做法？
 
-### Q2. 8 小时强制暂停：惰性推送已实现，还剩什么？
+### Q2. 8 小时暂停的最终方案
 
-**已解决的部分**：惰性推送已落地——每 5 分钟自检，距上次成功推送不足间隔就不推。
-即使机器被暂停 8 小时，**唤醒后 5 分钟内自动补推，不会丢内容**。
-所以 8 小时上限现在只影响「内容延迟」，不再影响「内容丢失」。
+如果 `/ping` 唤不醒，GitHub Actions 每 4 小时 resume 是唯一方案。**有没有更可靠的免费定时器？**（cron-job.org 无法动态生成 `Idempotency-Key`，这是关键障碍）
 
-**仍未解决 / 需要评估**：
-- 机器被暂停期间，`/ping` 到底能不能把它唤醒？（官方文档只写了「闲置暂停」可被端口访问唤醒）
-- 如果唤不醒，GitHub Actions 每 4 小时 resume 仍是最简方案——有没有更可靠的免费定时器
-  能发带自定义 header 的 POST？（cron-job.org 无法动态生成 Idempotency-Key）
-- 8 小时计时是「连续运行」还是「累计运行」？resume 后是否重置？（**未实测，部署后验证**）
+### Q3. $9/月 定价是否站得住
 
-### Q3. 免费档 vs 付费 VPS，什么时候该换？
+满街免费频道，两个卖点还是空的。$3–5 更现实，或先免费冲 500 人。**需要判断定价策略。**
 
-- InstaBox 免费：0 元，但 1 台、8 小时上限、beta 无 SLA、官方明说"免费到我们想清楚为止"
-- Oracle 免费机：0 元，4 核 24G 长期资产，但抢不到
-- 低价 VPS：约 $5/月（≈36 元），无暂停限制
-- 用户预算 500 元，月付 36 元意味着一年 432 元——**几乎吃掉全部启动资金**
+### Q4. 一台 4C8G 上多项目共存
 
-需要判断：这个 bot 在什么用户量/收入水平下，值得从免费档迁移到付费 VPS？
+用户还有其他项目（AI agent 网关等）。bot 本身 I/O 密集、约 60 MB，资源不是问题；真正冲突是**8 小时暂停会让同机所有项目一起睡**。需要判断哪些项目能容忍中断。
 
-### Q4. 这个产品本身值得继续投入吗？
+### Q5. 这个方向值不值得继续投入
 
 诚实评估点：
-- 加密行情推送是**极度红海**（Telegram 上同类频道数以千计，多数免费）
-- 差异化只有"深度解读"和"异动榜"，但数据源都是公开的，壁垒极低
-- 目标用户（中文加密散户）对付费 $9/月 的意愿存疑
-- 目前 **0 用户、0 收入**，只有作者自己的私人号在收推送
-
-请评估：这是不是一个应该继续投入的方向？如果不值得，什么样的相邻方向更值得？
+- 加密行情推送是极度红海，中文市场稍空但用户付费意愿存疑
+- 差异化（多源降级、深度解读）数据源都是公开的，壁垒低
+- 目前 0 用户、0 收入
 
 ---
 
-## 8. 文件清单
+## 8. 关键设计决策记录（别重复讨论）
+
+| 决策 | 选择 | 理由 |
+|---|---|---|
+| 依赖 | **零 npm 依赖** | 免费云 + 新手部署，依赖越少越不容易挂 |
+| 行情 | **多源降级 + 源记忆** | 用户在大陆，CoinGecko 常被 DNS 污染 |
+| 调度 | **惰性 tick，不用 setInterval** | 机器会被强制暂停，定时器不可靠 |
+| 配置 | **`node --env-file`，不用 pm2 `env` 字段** | pm2 的 env 会把明文 token 写进 `~/.pm2/dump.pm2` |
+| 分片 | **按行累积切分** | 每行是完整单元，HTML 标签天然不跨片；按字符切会切断 `<a>` |
+| 状态 | **`STATE_DIR` 指向持久盘** | 系统盘 `/` 在机器停止后可能重置 |
+| 新闻源 | **中文源优先做头条** | 受众是中文用户，英文标题等于白推 |
+| 自动发帖 | **不做** | 交易所 KYC 账号 + 风控，封了无法申诉；agent 只负责写，人点发送 |
+
+---
+
+## 9. 文件清单
 
 ```
 crypto-bot/
 ├── src/
-│   ├── bot.js            入口/编排/分档发送
+│   ├── bot.js            入口 / 调度 / 发送（分片、重试、看门狗）
 │   ├── config.js         配置（env 优先）
+│   ├── state.js          状态目录 + 定点调度算法
 │   ├── fetch.js          行情多源降级
 │   ├── intel.js          新闻 RSS + Exa 深度解读
 │   ├── premium.js        会员档数据
 │   ├── format.js         Telegram HTML 格式化
-│   ├── keepalive.js      云端保活端点
-│   └── state.js          状态目录 + 上次推送时间戳
+│   └── keepalive.js      健康检查端点
 ├── state/                运行时状态（gitignore）
-│   ├── market-source.json   源记忆
-│   ├── news-seen.json       已读新闻去重
-│   └── trending.json        上轮热度榜
-├── scripts/              诊断脚本
-├── .github/workflows/instabox-resume.yml   云端续命
+├── .github/workflows/instabox-resume.yml   8 小时续命（备用）
+├── deploy.sh             一键部署
 ├── ecosystem.config.cjs  pm2 配置
 ├── .env.example          环境变量模板
-├── config.example.json   配置模板
-├── CLOUD_DEPLOY.md       云端部署 SOP
-├── PROJECT_BRIEF.md      本文档（交给其他 AI 评估用）
-└── package.json          无 dependencies，仅 scripts
+├── CLOUD_DEPLOY.md       部署 SOP（含故障排查）
+├── X_DAILY.md            X 每日运营清单
+└── PROJECT_BRIEF.md      本文档
 ```
 
 ---
 
-## 9. 给评估者的一句话
+## 10. 给接手 AI 的一句话
 
-**代码质量本身不是问题**（多源降级、容错、零依赖这些做得比多数同类项目扎实）。
-真正的不确定性在**商业侧**：红海市场、零用户、免费云的环境限制、以及用户只有 500 元本金。
-请优先评估 §7 的 Q1 和 Q4——技术怎么跑通只是时间问题，值不值得跑才是关键。
+**技术上已经收尾**：上线了、跑起来了、容错做了、部署脚本有了。剩下的是**运营和商业判断**——怎么让第一个人进来、定价多少、要不要继续投入。
+
+请优先回答 §7 的 Q1 和 Q5，不要在代码质量上继续优化——**边际收益已经趋近于零**。
