@@ -4,7 +4,7 @@ import { fetchMovers, fetchNewTrending, airdropWatch } from './premium.js';
 import { formatReport } from './format.js';
 import { fetchFreshNews, formatIntel, fetchDeepDive, formatDeepDive } from './intel.js';
 import { cfg } from './config.js';
-import { minutesSinceLastPush, writeLastPush } from './state.js';
+import { minutesSinceLastPush, nextDuePushTime, readLastPush, writeLastPush } from './state.js';
 
 // --dry：只打印不发送。改完代码先用它验证，别拿真频道当试验场
 const DRY = process.argv.includes('--dry');
@@ -259,6 +259,8 @@ async function runOnce() {
 }
 
 const intervalMin = cfg?.scheduleMinutes ?? 360;
+// 定点推送时刻（如 08:30 / 20:30）。配了就优先用它，否则退回间隔模式。
+const PUSH_TIMES = cfg?.pushTimes ?? [];
 
 // ── 惰性推送 ──────────────────────────────────────────────────────
 // 不依赖「进程连续跑满 N 分钟」的 setInterval —— 云端机器会被强制暂停，
@@ -280,10 +282,23 @@ async function tick(reason) {
     return;
   }
 
-  const gap = minutesSinceLastPush();
-  if (gap < intervalMin) {
-    console.log(`[SKIP] 距上次 ${gap.toFixed(0)} 分钟 < ${intervalMin}，不推 (${reason})`);
-    return;
+  // 两种调度模式：
+  //   配了 PUSH_TIMES → 定点推送（到点才推；错过会补；推过不重复）
+  //   没配 → 老逻辑：距上次成功推送够 scheduleMinutes 就推
+  if (PUSH_TIMES.length) {
+    const due = nextDuePushTime(new Date(), readLastPush(), PUSH_TIMES);
+    if (!due) {
+      console.log(`[SKIP] 未到推送时刻（${PUSH_TIMES.join(' / ')}），不推 (${reason})`);
+      return;
+    }
+    const fmt = due.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
+    console.log(`[INFO] 到点推送：${fmt} (${reason})`);
+  } else {
+    const gap = minutesSinceLastPush();
+    if (gap < intervalMin) {
+      console.log(`[SKIP] 距上次 ${gap.toFixed(0)} 分钟 < ${intervalMin}，不推 (${reason})`);
+      return;
+    }
   }
 
   running = true;
@@ -320,7 +335,10 @@ if (process.argv.includes('--once')) {
   const ok = await runOnce();
   if (ok && !DRY) writeLastPush();
 } else {
-  console.log(`链上情报 Bot 启动，间隔 ${intervalMin} 分钟，每 5 分钟自检一次。Ctrl+C 退出。`);
+  const modeDesc = PUSH_TIMES.length
+    ? `定点推送 ${PUSH_TIMES.join(' / ')}`
+    : `间隔 ${intervalMin} 分钟`;
+  console.log(`链上情报 Bot 启动，${modeDesc}，每 5 分钟自检一次。Ctrl+C 退出。`);
   await tick('启动');
   setInterval(() => tick('自检'), CHECK_EVERY_MS);
 }

@@ -47,3 +47,35 @@ export function minutesSinceLastPush() {
   const last = readLastPush();
   return last ? (Date.now() - last.getTime()) / 60000 : Infinity;
 }
+
+// ── 定点推送 ────────────────────────────────────────────────────
+// 给定当前时间、上次推送时间、目标时刻列表（如 ['08:30','20:30']），
+// 返回「最近一个已经到点、但还没推过」的时刻；没有则返回 null。
+//
+// 为什么这样设计（而不是 setInterval 到点触发）：
+//   · 机器被强制暂停 8 小时 → 唤醒后 5 分钟内自动补推，不会漏
+//   · 只补最近一次，不会因为错过好几天就补发一堆
+//   · 已经推过就返回 null，进程重启也不会重复推
+//
+// 只检查「今天」和「昨天」两个实例，够覆盖暂停/跨夜场景。
+export function nextDuePushTime(now, last, times) {
+  if (!times?.length) return null;
+  let due = null;
+
+  for (const t of times) {
+    const [h, m] = String(t).split(':').map(Number);
+    if (!Number.isFinite(h) || !Number.isFinite(m)) continue;
+
+    for (const off of [0, -1]) {
+      const target = new Date(now);
+      target.setDate(target.getDate() + off);
+      target.setHours(h, m, 0, 0);
+
+      // 已经到点 且 上次推送早于该时刻 → 该推
+      if (now >= target && (!last || last < target)) {
+        if (!due || target > due) due = target;
+      }
+    }
+  }
+  return due;
+}

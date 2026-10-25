@@ -19,6 +19,21 @@ try {
 
 const pick = (...vals) => vals.find((v) => v != null && v !== '');
 
+// PUSH_TIMES=08:30,20:30 → ['08:30','20:30']
+// 只认 HH:MM 形式；写错的行直接丢掉，不让它把整条推送卡死
+function parsePushTimes(raw) {
+  if (!raw) return [];
+  return String(raw)
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => /^\d{1,2}:\d{1,2}$/.test(s))
+    .map((s) => {
+      const [h, m] = s.split(':').map(Number);
+      return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    })
+    .sort();
+}
+
 export const cfg = {
   telegram: {
     botToken: pick(process.env.TG_BOT_TOKEN, fileCfg?.telegram?.botToken),
@@ -26,6 +41,8 @@ export const cfg = {
     memberChatId: pick(process.env.TG_MEMBER_CHAT_ID, fileCfg?.telegram?.memberChatId),
   },
   scheduleMinutes: Number(pick(process.env.SCHEDULE_MINUTES, fileCfg?.scheduleMinutes)) || 360,
+  // 定点推送时刻（空数组 = 用 scheduleMinutes 的间隔模式）
+  pushTimes: parsePushTimes(pick(process.env.PUSH_TIMES, fileCfg?.pushTimes)),
   usdc: {
     receiveAddress: pick(process.env.USDC_RECEIVE_ADDRESS, fileCfg?.usdc?.receiveAddress),
     monthlyPriceUsd: Number(pick(process.env.USDC_MONTHLY_PRICE, fileCfg?.usdc?.monthlyPriceUsd)) || 9,

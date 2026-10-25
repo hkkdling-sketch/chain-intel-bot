@@ -32,13 +32,32 @@
 - 暂停期间定时器不推进，恢复后节奏被拉长（12h 变 20h）
 - 进程重启后定时器归零，可能一天推好几次
 
-现在改成**惰性推送**：每 5 分钟醒一次，问一句「距上次成功推送够 12 小时了吗」。
+现在改成**惰性推送**：每 5 分钟醒一次，问一句「该不该推」。
+
+### 两种调度模式
+
+**① 定点推送（推荐，配 `PUSH_TIMES`）**
+
+```bash
+PUSH_TIMES=08:30,20:30
+```
+
+到点才推，特性：
+- 机器被暂停错过某个时刻 → 唤醒后 5 分钟内**自动补推**（只补最近一次，不会补发一堆）
+- 已经推过的时刻不会重复推（进程重启也不怕）
+- 落在中文用户活跃时段，而不是凌晨 3 点
+
+**② 间隔推送（不配 `PUSH_TIMES` 时的老逻辑）**
+
+距上次成功推送够 `SCHEDULE_MINUTES` 就推。问题是起始时间决定一切：
+15:24 部署 → 下次 03:24（凌晨），等于白发。
 
 ```
 每 5 分钟 tick ──> 读 state/schedule.json 里的 lastPushedAt
                      │
-                     ├─ 不足 12h → [SKIP] 不推
-                     └─ 够 12h   → runOnce() → 发成功才写 lastPushedAt
+                     ├─ 定点模式：算出「已到点且未推」的时刻，没有就 SKIP
+                     ├─ 间隔模式：不足 N 小时就 SKIP
+                     └─ 该推 → runOnce() → 发成功才写 lastPushedAt
 ```
 
 好处：
@@ -109,6 +128,8 @@ nano .env
 ```
 
 必填：`TG_BOT_TOKEN`、`TG_CHAT_ID`、`KEEPALIVE_KEY`、`USDC_RECEIVE_ADDRESS`
+
+**推荐**：`PUSH_TIMES=08:30,20:30`（定点推送，落在活跃时段；不配则按 `SCHEDULE_MINUTES` 间隔推）
 
 **必改**：`STATE_DIR=/data/home/chain-intel-bot/state`
 （不设的话状态写到系统盘，机器停止后源记忆和推送时间戳全丢）
@@ -283,6 +304,7 @@ node src/bot.js --once
 |---|---|
 | 频道没推送 | `pm2 logs chain-intel-bot`；是不是 DEMO 模式（env 没读到） |
 | 日志显示 SKIP 很久 | `cat state/schedule.json` 看 lastPushedAt；可能时间戳被误写 |
+| 推送时间不对（如凌晨） | `grep PUSH_TIMES .env`；配了定点推送就会忽略 SCHEDULE_MINUTES |
 | 重启后重复推 | 检查 STATE_DIR 是否指向了持久盘；重启后 state 丢 = 时间戳丢 |
 | 机器 Paused 且 ping 唤不醒 | 上 GitHub Actions 续命（第五节） |
 | UptimeRobot 403 | key 和 URL 不一致；机器重建后 URL 变了 |
