@@ -1,30 +1,27 @@
-# InstaBox 机器续命：破「连续运行 8 小时自动暂停」的免费限制
+# InstaBox 机器定时重启：应对免费版「连续运行 8 小时强制暂停」
 #
-# 为什么需要：免费计划连续运行 8 小时后会被强制暂停，而 UptimeRobot 的 ping
-# 未必能戳醒「因运行超时」而暂停的机器（官方文档只写了能唤醒「闲置暂停」）。
-# 这个 workflow 每 4 小时调一次 resume API，机器在跑就无事发生，被暂停了就拉起来。
+# 2026-10-28 改：实测手动 suspend→resume 只要几秒、没有冷却，并且会把
+# 8 小时计时从 resume 那一刻重新算（pm2 进程保留）。所以每天 07:40 和 19:40
+# (北京时间) 主动暂停再恢复一次，让机器带满 8 小时撑过 08:30 / 20:30 推送。
+# 选 :40 是为了避开 GitHub 整点排队延迟。
+# 只有跑满 8 小时被强停才会冷却（默认 10 分钟），本流程会等冷却结束再恢复。
 #
-# 配置（只需两步）：
-#   1. 仓库 Settings → Secrets and variables → Actions 新建：
-#        INSTABOX_API_KEY   = 控制台「API密钥」页生成的 key
-#        INSTABOX_MACHINE_ID = 机器 ID（m_ 开头）
-#   2. Actions 页 → Instabox Resume → Run workflow 手动验证一次
-#
+# 需要仓库 Secrets：INSTABOX_API_KEY、INSTABOX_MACHINE_ID
 # 注意：GitHub 定时任务在仓库 60 天无提交后会自动停用，收到邮件提醒去点重新启用
 
 name: Instabox Resume
 
 on:
   schedule:
-    # 每 4 小时整点（UTC），免费档 8 小时上限，留足余量
-    - cron: '0 */4 * * *'
+    - cron: '40 23 * * *'   # 07:40 北京时间
+    - cron: '40 11 * * *'   # 19:40 北京时间
   workflow_dispatch:
 
 jobs:
-  resume:
+  restart:
     runs-on: ubuntu-latest
     steps:
-      - name: Resume machine if paused
+      - name: Suspend then resume (reset 8h timer)
         env:
           IB_KEY: ${{ secrets.INSTABOX_API_KEY }}
           IB_MACHINE: ${{ secrets.INSTABOX_MACHINE_ID }}
@@ -34,38 +31,38 @@ jobs:
             echo "::error::缺少 INSTABOX_API_KEY 或 INSTABOX_MACHINE_ID secret"
             exit 1
           fi
+          API="https://api.instabox.sh/v1/machines/$IB_MACHINE"
+          idem() { cat /proc/sys/kernel/random/uuid; }
+          info() { curl -sS -H "X-API-Key: $IB_KEY" "$API"; }
+          state() { info | jq -r '.state // "unknown"'; }
 
-          echo "查询机器状态..."
-          RESP=$(curl -sS -w "\n%{http_code}" \
-            -H "X-API-Key: $IB_KEY" \
-            "https://api.instabox.sh/v1/machines/$IB_MACHINE")
-          CODE=$(echo "$RESP" | tail -n1)
-          BODY=$(echo "$RESP" | sed '$d')
-          echo "HTTP $CODE"
-          echo "$BODY" | head -c 2000
-          echo
+          S=$(state); echo "当前状态: $S"
+          info | jq -c '{state,runStartedAt,cooldownUntil}' || true
 
-          STATE=$(echo "$BODY" | jq -r '.state // .machine.state // "unknown"' 2>/dev/null || echo unknown)
-          echo "state = $STATE"
+          if [ "$S" = "running" ]; then
+            echo "发送 suspend..."
+            curl -sS -X POST "$API/suspend" -H "X-API-Key: $IB_KEY" -H "Idempotency-Key: $(idem)" | head -c 1000; echo
+            for i in $(seq 1 24); do
+              sleep 5; S=$(state); echo "  $S"
+              case "$S" in suspended|paused|stopped*) break;; esac
+            done
+          fi
 
-          case "$STATE" in
-            running|starting|resuming)
-              echo "✅ 机器在线，无需操作"
-              ;;
-            paused|pausing|stopped|stopped_*)
-              echo "⏸ 机器已暂停，发送 resume..."
-              curl -sS -X POST \
-                "https://api.instabox.sh/v1/machines/$IB_MACHINE/resume" \
-                -H "X-API-Key: $IB_KEY" \
-                -H "Idempotency-Key: $(uuidgen)" | head -c 2000
-              echo
-              echo "已提交 resume 请求"
-              ;;
-            *)
-              echo "⚠️ 未知状态 $STATE，尝试 resume 兜底"
-              curl -sS -X POST \
-                "https://api.instabox.sh/v1/machines/$IB_MACHINE/resume" \
-                -H "X-API-Key: $IB_KEY" \
-                -H "Idempotency-Key: $(uuidgen)" | head -c 2000
-              ;;
-          esac
+          # 发 resume；遇到冷却 (409 machine_cooldown) 就按 Retry-After 等待后重试
+          for attempt in 1 2 3 4 5 6; do
+            OUT=$(curl -sS -w "\n%{http_code}" -X POST "$API/resume" -H "X-API-Key: $IB_KEY" -H "Idempotency-Key: $(idem)")
+            CODE=$(echo "$OUT" | tail -n1); BODY=$(echo "$OUT" | sed '$d')
+            echo "resume HTTP $CODE: $(echo "$BODY" | head -c 500)"
+            if [ "$CODE" -lt 300 ]; then break; fi
+            WAIT=$(echo "$BODY" | jq -r '.error.retryAfterSeconds // 60' 2>/dev/null || echo 60)
+            [ "$WAIT" -gt 900 ] && WAIT=900
+            echo "等待 ${WAIT}s 后重试"; sleep "$WAIT"
+          done
+
+          for i in $(seq 1 24); do
+            sleep 5; S=$(state); echo "  $S"
+            [ "$S" = "running" ] && break
+          done
+          info | jq -c '{state,runStartedAt,cooldownUntil,runtime}'
+          if [ "$S" != "running" ]; then echo "::error::机器未恢复运行"; exit 1; fi
+          echo "✅ 已重启，8 小时计时已重置"
